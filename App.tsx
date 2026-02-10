@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { User, Post, PageView } from './types';
 import { Navbar } from './components/Navbar';
 import { PostCard } from './components/PostCard';
@@ -9,11 +9,13 @@ import { ShareModal } from './components/ShareModal';
 import { SettingsModal } from './components/SettingsModal';
 import { RuplFeed } from './components/RuplFeed';
 import { Stories } from './components/Stories';
+import { SearchPage } from './components/SearchPage';
 import { Toast } from './components/Toast';
 import { Button } from './components/Button';
 import { Search, Lock, Mail, User as UserIcon, Check, Settings, Grid, Heart, Camera, Bookmark, AlignJustify } from 'lucide-react';
+import { storage } from './services/storage';
 
-// --- MOCK DATA ---
+// --- MOCK DATA FOR INITIALIZATION ---
 const DEFAULT_AVATAR = "https://picsum.photos/200/200";
 
 const MOCK_USERS: User[] = [
@@ -94,12 +96,13 @@ const INITIAL_POSTS: Post[] = [
 
 const App: React.FC = () => {
   // STATE
-  const [user, setUser] = useState<User | null>(null);
-  const [currentPage, setCurrentPage] = useState<PageView>('AUTH');
+  // Load initial state from Storage or fall back to Mock Data
+  const [users, setUsers] = useState<User[]>(() => storage.getUsers() || MOCK_USERS);
+  const [posts, setPosts] = useState<Post[]>(() => storage.getPosts() || INITIAL_POSTS);
+  const [user, setUser] = useState<User | null>(() => storage.getCurrentUser());
+  
+  const [currentPage, setCurrentPage] = useState<PageView>(user ? 'HOME' : 'AUTH');
   const [isLogin, setIsLogin] = useState(true); 
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [posts, setPosts] = useState<Post[]>(INITIAL_POSTS);
-  const [searchQuery, setSearchQuery] = useState('');
   
   // Modals & UI State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -121,6 +124,36 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState('');
   
   const authFileRef = useRef<HTMLInputElement>(null);
+
+  // --- STORAGE EFFECTS (REAL-TIME DB SIMULATION) ---
+
+  // 1. Save to storage whenever state changes
+  useEffect(() => {
+    storage.saveUsers(users);
+  }, [users]);
+
+  useEffect(() => {
+    storage.savePosts(posts);
+  }, [posts]);
+
+  useEffect(() => {
+    storage.saveCurrentUser(user);
+  }, [user]);
+
+  // 2. Listen for changes from other tabs to sync state (Real-time effect)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'rupl_posts_v1' && e.newValue) {
+        setPosts(JSON.parse(e.newValue));
+      }
+      if (e.key === 'rupl_users_v1' && e.newValue) {
+        setUsers(JSON.parse(e.newValue));
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
 
   // --- HELPERS ---
 
@@ -177,7 +210,8 @@ const App: React.FC = () => {
         bio: authBio || 'New to Rupl.'
       };
       
-      setUsers([...users, newUser]);
+      const updatedUsers = [...users, newUser];
+      setUsers(updatedUsers);
       setUser(newUser);
       setCurrentPage('HOME');
       showToast('Account created successfully!');
@@ -217,7 +251,7 @@ const App: React.FC = () => {
 
   const handleLike = (postId: string) => {
     if (!user) return;
-    setPosts(posts.map(post => {
+    const updatedPosts = posts.map(post => {
       if (post.id === postId) {
         const isLiked = post.likes.includes(user.id);
         const newLikes = isLiked 
@@ -226,16 +260,12 @@ const App: React.FC = () => {
         return { ...post, likes: newLikes };
       }
       return post;
-    }));
+    });
+    setPosts(updatedPosts);
+    
+    // Also update viewing post if open
     if (viewingPost && viewingPost.id === postId) {
-       setViewingPost(prev => {
-          if (!prev) return null;
-          const isLiked = prev.likes.includes(user.id);
-           const newLikes = isLiked 
-          ? prev.likes.filter(id => id !== user.id)
-          : [...prev.likes, user.id];
-          return { ...prev, likes: newLikes };
-       });
+       setViewingPost(updatedPosts.find(p => p.id === postId) || null);
     }
   };
 
@@ -246,15 +276,25 @@ const App: React.FC = () => {
       ? user.saved.filter(id => id !== postId)
       : [...user.saved, postId];
     
-    setUser({ ...user, saved: newSaved });
-    setUsers(users.map(u => u.id === user.id ? { ...u, saved: newSaved } : u));
+    const updatedUser = { ...user, saved: newSaved };
+    setUser(updatedUser);
+    setUsers(users.map(u => u.id === user.id ? updatedUser : u));
     showToast(isSaved ? 'Removed from saved' : 'Post saved');
   };
 
   const handleComment = (postId: string, text?: string) => {
     if (!user) return;
-    // If text is provided (from Home feed), add immediately. 
-    // If not (from Rupl feed), open detail modal.
+    // For simplicity, always open modal to comment if not already open
+    if (!viewingPost || viewingPost.id !== postId) {
+      const post = posts.find(p => p.id === postId);
+      if (post) setViewingPost(post);
+      if(text) {
+        // slight hack to handle direct comment from feed if we wanted to support it, 
+        // but now we open modal first.
+        // Actually, let's just add it if text exists.
+      }
+    }
+
     if (text) {
       const newComment = {
         id: Date.now().toString(),
@@ -265,21 +305,17 @@ const App: React.FC = () => {
         createdAt: Date.now()
       };
       
-      const updatePosts = (currentPosts: Post[]) => currentPosts.map(post => {
+      const updatedPosts = posts.map(post => {
         if (post.id === postId) {
           return { ...post, comments: [...post.comments, newComment] };
         }
         return post;
       });
 
-      setPosts(updatePosts(posts));
+      setPosts(updatedPosts);
       if (viewingPost && viewingPost.id === postId) {
-         setViewingPost(prev => prev ? { ...prev, comments: [...prev.comments, newComment] } : null);
+         setViewingPost(updatedPosts.find(p => p.id === postId) || null);
       }
-    } else {
-      // Open modal for commenting
-      const post = posts.find(p => p.id === postId);
-      if (post) setViewingPost(post);
     }
   };
 
@@ -297,17 +333,17 @@ const App: React.FC = () => {
     if (!user) return;
     const updatedUser = { ...user, ...updates };
     setUser(updatedUser);
-    setUsers(users.map(u => u.id === user.id ? updatedUser : u));
-    setPosts(posts.map(p => p.userId === user.id ? { ...p, username: updatedUser.username, userProfilePic: updatedUser.profilePic } : p));
+    const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
+    setUsers(updatedUsers);
+    
+    // Update posts authored by user
+    const updatedPosts = posts.map(p => p.userId === user.id ? { ...p, username: updatedUser.username, userProfilePic: updatedUser.profilePic } : p);
+    setPosts(updatedPosts);
+    
     showToast('Profile updated');
   };
 
   // --- RENDER SECTIONS ---
-
-  const filteredPosts = posts.filter(p => 
-    p.caption.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    p.username.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   const renderAuth = () => (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -418,46 +454,29 @@ const App: React.FC = () => {
 
   const renderHome = () => (
     <div className="max-w-xl mx-auto pt-2 md:pt-10 pb-20">
-      {/* Professional Search Bar */}
-      <div className="sticky top-14 md:top-4 z-30 bg-white/95 backdrop-blur-md px-4 py-2 md:py-0 md:mb-6">
-          <div className="relative group">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-gray-400 group-focus-within:text-black transition-colors" />
-            </div>
-            <input
-              type="text"
-              className="block w-full pl-10 pr-3 py-3 border-none rounded-full bg-gray-100 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-black/5 focus:bg-white shadow-sm transition-all"
-              placeholder="Search Rupl..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-      </div>
-
        {/* Stories */}
-      <div className="px-4 md:px-0 mb-6">
+      <div className="px-0 md:px-0 mb-2">
         <Stories currentUser={user!} users={users} />
       </div>
 
       {/* Feed */}
-      <div className="space-y-6 px-0 md:px-0">
-        {filteredPosts.length > 0 ? (
-          filteredPosts.map(post => (
-            <div key={post.id} className="md:rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300">
-              <PostCard
+      <div className="space-y-4 px-0 md:px-0">
+        {posts.length > 0 ? (
+          posts.map(post => (
+            <PostCard
+                key={post.id}
                 post={post}
                 currentUser={user!}
                 onLike={handleLike}
                 onComment={handleComment}
                 onShare={handleShareClick}
                 onSave={handleSavePost}
-              />
-            </div>
+            />
           ))
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-            <Search size={48} strokeWidth={1} className="mb-4 opacity-50" />
-            <p className="font-medium">No posts found</p>
+            <Camera size={48} strokeWidth={1} className="mb-4 opacity-50" />
+            <p className="font-medium">No posts yet. Be the first!</p>
           </div>
         )}
       </div>
@@ -483,11 +502,11 @@ const App: React.FC = () => {
     const displayPosts = profileActiveTab === 'POSTS' ? myPosts : savedPosts;
 
     return (
-      <div className="max-w-4xl mx-auto pt-20 pb-20 px-4">
+      <div className="max-w-4xl mx-auto pt-4 md:pt-20 pb-20 px-0 md:px-4">
         {/* Profile Header */}
-        <div className="flex flex-col md:flex-row items-center md:items-start mb-8 md:mb-12">
-          <div className="relative group mb-6 md:mb-0 md:mr-12">
-            <div className="w-28 h-28 md:w-40 md:h-40 rounded-full p-1 border-2 border-gray-200 group-hover:border-black transition-colors">
+        <div className="flex flex-col md:flex-row items-center md:items-start mb-6 md:mb-12 px-4 md:px-0">
+          <div className="relative group mb-4 md:mb-0 md:mr-12 shrink-0">
+            <div className="w-24 h-24 md:w-40 md:h-40 rounded-full p-1 border border-gray-200 group-hover:border-black transition-colors">
                <img 
                  src={user.profilePic} 
                  alt={user.username} 
@@ -496,20 +515,20 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          <div className="flex-1 text-center md:text-left">
+          <div className="flex-1 text-center md:text-left w-full">
             <div className="flex flex-col md:flex-row items-center md:mb-6">
-              <h2 className="text-2xl md:text-3xl font-light mr-0 md:mr-6 mb-3 md:mb-0">{user.username}</h2>
+              <h2 className="text-xl md:text-3xl font-light mr-0 md:mr-6 mb-3 md:mb-0">{user.username}</h2>
               <div className="flex space-x-2">
                 <Button 
                    variant="secondary" 
-                   className="px-6 py-2 text-sm h-auto font-semibold bg-gray-100 hover:bg-gray-200"
+                   className="px-6 py-1.5 md:py-2 text-sm h-auto font-semibold bg-gray-100 hover:bg-gray-200 rounded-lg"
                    onClick={() => setIsEditProfileOpen(true)}
                 >
                    Edit Profile
                 </Button>
                 <Button 
                   variant="secondary" 
-                  className="p-2 h-auto bg-gray-100 hover:bg-gray-200"
+                  className="p-1.5 md:p-2 h-auto bg-gray-100 hover:bg-gray-200 rounded-lg"
                   onClick={() => setIsSettingsOpen(true)}
                 >
                   <Settings size={20} />
@@ -518,7 +537,7 @@ const App: React.FC = () => {
             </div>
             
             {/* Stats - Improved UI */}
-            <div className="flex justify-center md:justify-start space-x-8 md:space-x-12 mb-6 border-t border-b md:border-none py-4 md:py-0 border-gray-100 w-full md:w-auto">
+            <div className="flex justify-center md:justify-start space-x-8 md:space-x-12 mb-6 border-t border-b md:border-none py-3 md:py-0 border-gray-100 w-full md:w-auto mt-4 md:mt-0">
               <div className="flex flex-col md:flex-row md:items-baseline md:space-x-1">
                  <span className="font-bold text-lg md:text-xl text-black">{myPosts.length}</span>
                  <span className="text-gray-500 text-sm md:text-base">posts</span>
@@ -541,7 +560,7 @@ const App: React.FC = () => {
         </div>
         
         {/* Mobile Bio */}
-        <div className="md:hidden text-sm px-2 mb-8 text-center">
+        <div className="md:hidden text-sm px-4 mb-6 text-left">
              <p className="font-bold text-base mb-1">{user.username}</p>
              <p className="whitespace-pre-wrap text-gray-700">{user.bio || 'No bio yet.'}</p>
         </div>
@@ -550,14 +569,14 @@ const App: React.FC = () => {
         <div className="flex justify-center border-t border-gray-200 sticky top-14 md:top-0 bg-white z-20">
            <button 
              onClick={() => setProfileActiveTab('POSTS')}
-             className={`flex items-center space-x-2 text-xs font-bold tracking-widest h-12 px-8 md:px-12 border-t-2 transition-all ${profileActiveTab === 'POSTS' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+             className={`flex items-center space-x-2 text-xs font-bold tracking-widest h-12 px-8 md:px-12 border-t transition-all ${profileActiveTab === 'POSTS' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
            >
              <Grid size={14} />
              <span>POSTS</span>
            </button>
            <button 
              onClick={() => setProfileActiveTab('SAVED')}
-             className={`flex items-center space-x-2 text-xs font-bold tracking-widest h-12 px-8 md:px-12 border-t-2 transition-all ${profileActiveTab === 'SAVED' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+             className={`flex items-center space-x-2 text-xs font-bold tracking-widest h-12 px-8 md:px-12 border-t transition-all ${profileActiveTab === 'SAVED' ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
            >
              <Bookmark size={14} />
              <span>SAVED</span>
@@ -565,7 +584,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Grid */}
-        <div className="grid grid-cols-3 gap-0.5 md:gap-6 mt-1">
+        <div className="grid grid-cols-3 gap-0.5 md:gap-4 mt-0.5 md:mt-4 pb-20">
           {displayPosts.map((post) => (
             <div 
               key={post.id} 
@@ -576,9 +595,8 @@ const App: React.FC = () => {
                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white font-bold transition-opacity">
                   <Heart className="mr-2 fill-white" size={20} /> {post.likes.length}
                </div>
-               {/* Icon indicating type if needed */}
                {!post.isPublic && (
-                 <div className="absolute top-2 right-2 bg-black/50 p-1 rounded-full text-white">
+                 <div className="absolute top-2 right-2 bg-black/50 p-1.5 rounded-full text-white backdrop-blur-sm">
                    <Lock size={12} />
                  </div>
                )}
@@ -623,6 +641,14 @@ const App: React.FC = () => {
 
       <main className="md:pl-20 xl:pl-64 min-h-screen transition-all duration-300">
         {currentPage === 'HOME' && renderHome()}
+        {currentPage === 'SEARCH' && (
+           <SearchPage 
+             posts={posts} 
+             users={users} 
+             currentUser={user!}
+             onPostClick={(p) => setViewingPost(p)}
+           />
+        )}
         {currentPage === 'RUPL' && renderRupl()}
         {currentPage === 'PROFILE' && renderProfile()}
       </main>

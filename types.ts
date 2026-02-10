@@ -31,4 +31,4 @@ export interface Post {
   isPublic: boolean; // True = Rupl/Explore, False = Followers only
 }
 
-export type PageView = 'AUTH' | 'HOME' | 'RUPL' | 'PROFILE';
+export type PageView = 'AUTH' | 'HOME' | 'SEARCH' | 'RUPL' | 'PROFILE';

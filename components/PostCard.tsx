@@ -14,9 +14,16 @@ interface PostCardProps {
 export const PostCard: React.FC<PostCardProps> = ({ post, currentUser, onLike, onComment, onShare, onSave }) => {
   const [commentText, setCommentText] = useState('');
   const [showHeartOverlay, setShowHeartOverlay] = useState(false);
+  const [isLikeAnimating, setIsLikeAnimating] = useState(false);
 
   const isLiked = post.likes.includes(currentUser.id);
   const isSaved = currentUser.saved.includes(post.id);
+
+  const handleLike = () => {
+    onLike(post.id);
+    setIsLikeAnimating(true);
+    setTimeout(() => setIsLikeAnimating(false), 300);
+  };
 
   const handleDoubleTap = () => {
     if (!isLiked) {
@@ -37,36 +44,39 @@ export const PostCard: React.FC<PostCardProps> = ({ post, currentUser, onLike, o
     const seconds = Math.floor((Date.now() - timestamp) / 1000);
     if (seconds < 60) return 'Just now';
     const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 60) return `${minutes}m`;
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
+    if (hours < 24) return `${hours}h`;
     const days = Math.floor(hours / 24);
-    return `${days}d ago`;
+    return `${days}d`;
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl mb-6 shadow-sm overflow-hidden">
+    <div className="bg-white border-b md:border border-gray-200 md:rounded-xl mb-4 md:mb-6 shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b border-gray-50">
-        <div className="flex items-center cursor-pointer">
-          <img 
-            src={post.userProfilePic} 
-            alt={post.username} 
-            className="w-8 h-8 rounded-full object-cover mr-3 ring-1 ring-gray-200"
-          />
+      <div className="flex items-center justify-between p-3.5">
+        <div className="flex items-center cursor-pointer group">
+          <div className="relative">
+             <img 
+              src={post.userProfilePic} 
+              alt={post.username} 
+              className="w-9 h-9 rounded-full object-cover mr-3 ring-1 ring-gray-100"
+            />
+          </div>
           <div className="flex flex-col">
-            <span className="font-bold text-sm leading-none">{post.username}</span>
-            <span className="text-[10px] text-gray-500 mt-0.5">{getTimeAgo(post.createdAt)}</span>
+            <span className="font-bold text-sm text-gray-900 group-hover:text-gray-600 transition-colors">{post.username}</span>
+            {/* Optional Location mock */}
+            <span className="text-[11px] text-gray-500">Rupl Original</span> 
           </div>
         </div>
-        <button className="text-gray-500 hover:text-black">
+        <button className="text-gray-500 hover:text-black transition-colors p-1 rounded-full hover:bg-gray-50">
           <MoreHorizontal size={20} />
         </button>
       </div>
 
       {/* Image */}
       <div 
-        className="relative aspect-square w-full bg-gray-100 cursor-pointer"
+        className="relative aspect-square w-full bg-gray-100 cursor-pointer overflow-hidden"
         onDoubleClick={handleDoubleTap}
       >
         <img 
@@ -76,85 +86,87 @@ export const PostCard: React.FC<PostCardProps> = ({ post, currentUser, onLike, o
           loading="lazy"
         />
         {/* Heart Overlay Animation */}
-        <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-all duration-300 ${showHeartOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
-          <Heart size={128} className="fill-white text-white drop-shadow-2xl opacity-90" />
+        <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-all duration-300 ease-out ${showHeartOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
+          <Heart size={120} className="fill-white text-white drop-shadow-2xl opacity-90 animate-bounce" />
         </div>
       </div>
 
       {/* Actions */}
-      <div className="p-3">
+      <div className="px-3.5 pt-3 pb-2">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-4">
             <button 
-              onClick={() => onLike(post.id)}
-              className={`transition-all active:scale-90 ${isLiked ? 'text-red-500' : 'text-black hover:opacity-60'}`}
+              onClick={handleLike}
+              className={`transition-transform duration-200 active:scale-75 hover:opacity-70 ${isLikeAnimating ? 'scale-125' : ''} ${isLiked ? 'text-red-500' : 'text-black'}`}
             >
               <Heart size={26} fill={isLiked ? "currentColor" : "none"} strokeWidth={isLiked ? 0 : 2} />
             </button>
             <button 
-              onClick={() => {}} // Focus input usually
-              className="text-black hover:opacity-60 transition-opacity"
+              onClick={() => onComment(post.id, '')} 
+              className="text-black hover:opacity-50 transition-opacity active:scale-90 duration-200"
             >
-              <MessageCircle size={26} />
+              <MessageCircle size={26} strokeWidth={2} />
             </button>
             <button 
               onClick={() => onShare(post.id)}
-              className="text-black hover:opacity-60 transition-opacity"
+              className="text-black hover:opacity-50 transition-opacity active:scale-90 duration-200 transform -rotate-12"
             >
-              <Send size={26} />
+              <Send size={26} strokeWidth={2} />
             </button>
           </div>
           <button 
              onClick={() => onSave(post.id)}
-             className={`transition-all active:scale-90 ${isSaved ? 'text-black' : 'text-black hover:opacity-60'}`}
+             className={`transition-all duration-200 active:scale-75 hover:opacity-70 ${isSaved ? 'text-black' : 'text-black'}`}
           >
-             <Bookmark size={26} fill={isSaved ? "currentColor" : "none"} />
+             <Bookmark size={26} fill={isSaved ? "currentColor" : "none"} strokeWidth={2} />
           </button>
         </div>
 
         {/* Likes Count */}
-        <div className="font-bold text-sm mb-2">
-          {post.likes.length} likes
+        <div className="font-bold text-sm mb-2 text-gray-900 cursor-pointer hover:underline">
+          {post.likes.length > 0 ? `${post.likes.length.toLocaleString()} likes` : 'Be the first to like'}
         </div>
 
         {/* Caption */}
-        <div className="text-sm mb-2">
-          <span className="font-bold mr-2">{post.username}</span>
-          {post.caption}
+        <div className="text-sm mb-2 leading-relaxed">
+          <span className="font-bold mr-2 text-gray-900 cursor-pointer hover:underline">{post.username}</span>
+          <span className="text-gray-900">{post.caption}</span>
         </div>
 
         {/* Comments Preview */}
         {post.comments.length > 0 && (
-          <div className="space-y-1 mb-2">
-            <button className="text-gray-500 text-sm mb-1">
-              View all {post.comments.length} comments
-            </button>
-            {post.comments.slice(0, 2).map((comment) => (
-              <div key={comment.id} className="text-sm flex items-start">
-                <span className="font-bold mr-2 shrink-0">{comment.username}</span>
-                <span className="text-gray-800 line-clamp-1">{comment.text}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Add Comment */}
-        <form onSubmit={handleSubmitComment} className="flex items-center mt-2 pt-1">
-          <input
-            type="text"
-            value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
-            placeholder="Add a comment..."
-            className="flex-1 text-sm outline-none placeholder-gray-400 bg-transparent"
-          />
           <button 
-            type="submit" 
-            disabled={!commentText.trim()}
-            className="text-blue-500 font-semibold text-sm disabled:opacity-50 ml-2"
+            onClick={() => onComment(post.id, '')}
+            className="text-gray-500 text-sm mb-2 font-medium hover:text-gray-700 transition-colors"
           >
-            Post
+            View all {post.comments.length} comments
           </button>
-        </form>
+        )}
+        
+        <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-3">
+          {getTimeAgo(post.createdAt)}
+        </div>
+
+        {/* Add Comment Input */}
+        <div className="border-t border-gray-100 pt-3 hidden md:block">
+          <form onSubmit={handleSubmitComment} className="flex items-center">
+            <input
+              type="text"
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              placeholder="Add a comment..."
+              className="flex-1 text-sm outline-none placeholder-gray-400 bg-transparent"
+            />
+            {commentText && (
+              <button 
+                type="submit" 
+                className="text-blue-500 font-bold text-sm hover:text-blue-700 transition-colors ml-2"
+              >
+                Post
+              </button>
+            )}
+          </form>
+        </div>
       </div>
     </div>
   );
