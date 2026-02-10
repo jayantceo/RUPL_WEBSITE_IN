@@ -1,0 +1,5 @@
+{
+  "name": "Rupl Social",
+  "description": "A minimalist, black and white social media platform for sharing images. Features AI-powered caption generation, public feeds (Rupl), and user profiles.",
+  "requestFramePermissions": []
+}
